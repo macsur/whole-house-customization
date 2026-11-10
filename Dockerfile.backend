@@ -1,0 +1,27 @@
+# 木序定制 · 全屋定制平台 — 后端镜像 (Django REST + PyMySQL)
+# 全链条闭环：优先从 Docker Hub 拉取 macttnk/whole-house-backend:<tag>，
+# 拉取失败时由 docker compose 用本文件自动兜底本地构建。
+FROM python:3.13-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+COPY service/WholeHouse/requirements.txt /app/
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    default-libmysqlclient-dev \
+    pkg-config \
+    curl \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir cryptography \
+    && apt-get purge -y --auto-remove build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY service/WholeHouse/ /app/
+
+EXPOSE 8000
+
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000", "--noreload"]

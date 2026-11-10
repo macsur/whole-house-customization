@@ -1,0 +1,68 @@
+services:
+  whc-mysql:
+    image: mysql:8
+    container_name: whc-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-whole_house_customization}
+    volumes:
+      - whc-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  whc-backend:
+    # 全链条闭环：优先拉取我方镜像 macttnk/whole-house-backend:<tag>；
+    # 镜像缺失或网络失败时，compose 会自动退回用下方 build 段本地构建（兜底）。
+    image: macttnk/whole-house-backend:${WHC_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: whc-backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: whc-mysql
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE:-whole_house_customization}
+      DB_USER: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY must be set in .env}
+    ports:
+      - "8000:8000"
+    depends_on:
+      whc-mysql:
+        condition: service_healthy
+
+  whc-client:
+    # 全链条闭环：优先拉取 macttnk/whole-house-client:<tag>；缺失时自动本地构建。
+    image: macttnk/whole-house-client:${WHC_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: whc-client
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - whc-backend
+
+  whc-admin:
+    # 全链条闭环：优先拉取 macttnk/whole-house-admin:<tag>；缺失时自动本地构建。
+    image: macttnk/whole-house-admin:${WHC_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.admin
+    container_name: whc-admin
+    restart: unless-stopped
+    ports:
+      - "5172:80"
+    depends_on:
+      - whc-backend
+
+volumes:
+  whc-mysql-data:
