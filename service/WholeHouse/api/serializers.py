@@ -63,8 +63,8 @@ class RequirementSerializer(serializers.ModelSerializer):
             "id", "customer", "customer_name", "contact", "phone", "space",
             "house_type", "dimensions", "style", "materials", "budget",
             "delivery_date", "description", "floor_plan_file", "floor_plan_type",
-            "has_attachment", "owner", "status", "created_at", "submittedAt",
-            "updated_at",
+            "floor_plan_size", "has_attachment", "owner", "status",
+            "created_at", "submittedAt", "updated_at",
         ]
         read_only_fields = ["owner", "status"]
 

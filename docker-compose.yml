@@ -32,6 +32,10 @@ services:
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY must be set in .env}
+      WHC_MEDIA_ROOT: /data/media
+    volumes:
+      # E1：附件持久卷挂载（户型图存这里，容器重建不丢）
+      - whc-media:/data/media
     ports:
       - "8000:8000"
     depends_on:
@@ -66,3 +70,5 @@ services:
 
 volumes:
   whc-mysql-data:
+  # E1：户型图附件持久卷（与 MySQL 数据同级，容器重建/z app 更新不丢）
+  whc-media:

@@ -276,6 +276,126 @@ def submit_requirement(request):
     return Response({"code": 200, "message": "success", "data": {"id": requirement.pk, **data}})
 
 
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def submit_requirement_multipart(request):
+    """客户端在线定制提交需求——multipart 版（E1）。
+
+    表单字段与 JSON 版一致；额外支持 floorPlan 附件字段（jpg/png/webp/PDF，≤10MB）。
+    附件存 WHC_MEDIA_ROOT 持久卷（compose 卷 whc-media），容器重建不丢。
+    """
+    from .attachments import save_floor_plan, validate_floor_plan
+
+    payload = {key: value for key, value in request.data.items() if key != "floorPlan"}
+    upload = request.FILES.get("floorPlan")
+
+    # 复用 JSON 版校验逻辑：request.data 里已是字符串，转成同一结构再校验
+    import json as _json
+
+    try:
+        materials = _json.loads(payload.get("materials", "[]")) if isinstance(payload.get("materials"), str) else (payload.get("materials") or [])
+        dimensions_raw = payload.get("dimensions")
+        dims = _json.loads(dimensions_raw) if isinstance(dimensions_raw, str) else (dimensions_raw or {})
+    except (ValueError, TypeError):
+        return Response({"code": 400, "message": "materials 或 dimensions 字段格式不正确", "data": None})
+
+    contact = str(payload.get("contact") or "").strip()
+    phone = str(payload.get("phone") or "").strip()
+    space = str(payload.get("space") or "").strip()
+
+    errors = {}
+    if not contact:
+        errors["contact"] = "请填写联系人"
+    if not re.fullmatch(r"1\d{10}", phone):
+        errors["phone"] = "请输入正确的 11 位手机号"
+    if not space:
+        errors["space"] = "请选择定制空间"
+    if errors:
+        return Response({"code": 400, "message": "；".join(errors.values()), "data": None})
+
+    try:
+        ext, content_type = validate_floor_plan(upload)
+    except ValueError as exc:
+        return Response({"code": 400, "message": str(exc), "data": None})
+
+    dims = dims if isinstance(dims, dict) else {}
+    dimensions = (
+        f"{dims.get('length', '')}×{dims.get('width', '')}×{dims.get('height', '')}mm"
+        if dims.get("length")
+        else str(dimensions_raw or "")
+    )
+
+    customer = None
+    user = getattr(request, "user", None)
+    if getattr(user, "is_authenticated", False) and not user.is_staff:
+        customer, _created = Customer.objects.get_or_create(
+            phone=user.username,
+            defaults={"name": contact or user.first_name or "客户"},
+        )
+
+    with transaction.atomic():
+        floor_plan_rel_path, _saved_name = ("", "")
+        if upload is not None:
+            floor_plan_rel_path, _saved_name = save_floor_plan(
+                upload, upload.name, ext, content_type,
+            )
+        requirement = Requirement.objects.create(
+            customer=customer,
+            contact=contact,
+            phone=phone,
+            space=space,
+            house_type=str(payload.get("houseType") or ""),
+            dimensions=dimensions,
+            style=str(payload.get("style") or ""),
+            materials=materials,
+            budget=str(payload.get("budget") or ""),
+            delivery_date=str(payload.get("deliveryDate") or ""),
+            description=str(payload.get("description") or ""),
+            floor_plan_file=str(upload.name) if upload else "",
+            floor_plan_path=floor_plan_rel_path,
+            floor_plan_type=content_type or "",
+            floor_plan_size=upload.size if upload else 0,
+        )
+        if customer is None:
+            customer = _get_or_create_customer(contact, phone)
+            requirement.customer = customer
+            requirement.save(update_fields=["customer"])
+
+    data = RequirementSerializer(requirement).data
+    return Response({"code": 200, "message": "success", "data": {"id": requirement.pk, **data}})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def admin_floor_plan_download(request):
+    """管理端查看/下载需求附件（需真登录）。/api/floorplan?requirement=<id>"""
+    if not _staff_required(request):
+        return Response({"code": 403, "message": "需要管理端登录", "data": None})
+    requirement = Requirement.objects.filter(pk=request.query_params.get("requirement")).first()
+    if requirement is None or not requirement.floor_plan_path:
+        return Response({"code": 404, "message": "附件不存在", "data": None})
+
+    import os as _os
+
+    from django.http import FileResponse
+
+    full_path = _os.path.join(attachments_media_root(), requirement.floor_plan_path)
+    if not _os.path.isfile(full_path):
+        return Response({"code": 404, "message": "附件文件已丢失", "data": None})
+    return FileResponse(
+        open(full_path, "rb"),
+        as_attachment=bool(request.query_params.get("download")),
+        filename=requirement.floor_plan_file or None,
+        content_type=requirement.floor_plan_type or "application/octet-stream",
+    )
+
+
+def attachments_media_root():
+    from .attachments import media_root
+
+    return media_root()
+
+
 # ---------------- 管理端（真登录校验） ----------------
 
 

@@ -10,8 +10,11 @@ urlpatterns = [
     path("product", views.product_detail, name="product"),
     path("cases", views.CaseViewSet.as_view({"get": "list"}), name="cases"),
     path("case", views.case_detail, name="case"),
-    # 客户端需求提交（游客可提交）
+    # 客户端需求提交（游客可提交；multipart 版支持户型图附件）
     path("customize", views.submit_requirement, name="customize"),
+    path("requirements", views.submit_requirement_multipart, name="requirements-multipart"),
+    # 管理端附件查看/下载（E1）
+    path("floorplan", views.admin_floor_plan_download, name="admin-floorplan"),
     # 客户端订单与个人资料
     path("orders", views.client_orders, name="client-orders"),
     path("order", views.client_order_detail, name="client-order"),
